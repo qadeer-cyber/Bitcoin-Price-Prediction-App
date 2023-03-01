@@ -15,7 +15,7 @@ class App(QWidget):
         self.left = 50
         self.top = 50
         self.width = 500
-        self.height = 300
+        self.height = 350  # increased height to accommodate the new label
         self.initUI()
 
     def initUI(self):
@@ -33,11 +33,43 @@ class App(QWidget):
         self.label3 = QLabel('', self)
         self.label3.move(300, 100)
 
+        # New label for current Bitcoin price
+        self.label4 = QLabel('Current Bitcoin price:', self)
+        self.label4.move(50, 150)
+        self.label5 = QLabel('', self)
+        self.label5.move(300, 150)
+
         self.button = QPushButton('Predict', self)
-        self.button.move(200, 200)
+        self.button.move(200, 250)
         self.button.clicked.connect(self.predict_price)
 
+        # New button to update current Bitcoin price
+        self.button2 = QPushButton('Update', self)
+        self.button2.move(200, 300)
+        self.button2.clicked.connect(self.update_price)
+
+        # Display current Bitcoin price
+        self.update_price()
+
         self.show()
+
+    def update_price(self):
+        try:
+            # Retrieve current Bitcoin price from Binance API
+            url = 'https://api.binance.com/api/v3/ticker/price'
+            params = {'symbol': 'BTCUSDT'}
+            res = requests.get(url, params=params)
+            data = res.json()
+            price = float(data['price'])
+
+            # Display current Bitcoin price
+            self.label5.setText('${:.2f}'.format(price))
+        except Exception as e:
+            QMessageBox.critical(self, 'Error',
+                                 f'Unable to retrieve Bitcoin price data. Error message: {str(e)}\nPlease check your internet connection and try again.')
+
+    # ...rest of the code stays the same
+
 
     def get_data(self):
         try:
