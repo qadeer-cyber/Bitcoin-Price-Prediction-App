@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - PolySignal BTC{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <h4 class="text-secondary mb-3">
+                <i class="bi bi-lightning-charge me-2"></i>Active Market
+            </h4>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-clock me-2"></i>5-Minute Window
+                </div>
+                <div class="card-body text-center">
+                    <div class="countdown" id="countdown">--:--</div>
+                    <div class="mt-3">
+                        <span class="badge bg-secondary" id="window-status">Live</span>
+                    </div>
+                    <div class="mt-2 text-secondary small" id="window-times">
+                        Loading window...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-currency-bitcoin me-2"></i>BTC Reference Price
+                </div>
+                <div class="card-body text-center">
+                    <div class="stat-value" style="font-size: 2rem; color: var(--accent-gold);">
+                        {% if btc_price %}
+                            ${{ "{:,.2f}".format(btc_price) }}
+                        {% else %}
+                            --
+                        {% endif %}
+                    </div>
+                    <div class="mt-3 text-secondary small">
+                        Source: Binance (Supplementary)
+                    </div>
+                    <div class="mt-2 small" style="color: var(--accent-violet);">
+                        Resolution: Chainlink BTC/USD
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-pie-chart me-2"></i>Market Probability
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <div class="stat-value signal-up">UP</div>
+                            <div class="stat-label">{{ "%.1f"|format(market.up_probability * 100 if market.up_probability else 0) }}%</div>
+                            <div class="progress mt-2">
+                                <div class="progress-bar" style="width: {{ market.up_probability * 100 if market.up_probability else 50 }}%"></div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-value signal-down">DOWN</div>
+                            <div class="stat-label">{{ "%.1f"|format((1 - market.up_probability) * 100 if market.up_probability else 50) }}%</div>
+                            <div class="progress mt-2">
+                                <div class="progress-bar bg-danger" style="width: {{ (1 - market.up_probability) * 100 if market.up_probability else 50 }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mt-2">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-lightning-fill me-2"></i>Current Signal</span>
+                    <span class="regime-badge regime-{{ signal.regime if signal.regime else 'sideways' }}">{{ signal.regime|upper if signal.regime else 'UNKNOWN' }}</span>
+                </div>
+                <div class="card-body">
+                    <div class="row align-items-center">
+                        <div class="col-md-4 text-center">
+                            <div class="confidence-ring mx-auto">
+                                <svg width="120" height="120" viewBox="0 0 120 120">
+                                    <circle cx="60" cy="60" r="54" fill="none" stroke="#1e293b" stroke-width="8"/>
+                                    <circle cx="60" cy="60" r="54" fill="none" stroke="{{ '#10b981' if signal.direction == 'UP' else '#ef4444' if signal.direction == 'DOWN' else '#94a3b8' }}" stroke-width="8"
+                                            stroke-dasharray="{{ (signal.confidence / 100 * 339.292) if signal.confidence else 0 }} 339.292"
+                                            stroke-linecap="round"/>
+                                </svg>
+                                <div class="confidence-value {% if signal.direction == 'UP' %}signal-up{% elif signal.direction == 'DOWN' %}signal-down{% else %}signal-none{% endif %}">
+                                    {{ signal.confidence if signal.confidence else '--' }}
+                                </div>
+                            </div>
+                            <span class="tier-badge tier-{{ signal.tier if signal.tier else 'weak' }} mt-2">{{ signal.tier|upper if signal.tier else 'NONE' }}</span>
+                        </div>
+                        <div class="col-md-8">
+                            <h2 class="mb-4 {% if signal.direction == 'UP' %}signal-up{% elif signal.direction == 'DOWN' %}signal-down{% else %}signal-none{% endif %}" style="font-size: 3rem; font-weight: 700;">
+                                {{ signal.direction }}
+                            </h2>
+                            <div class="mt-3">
+                                <h6 class="text-secondary mb-2">Signal Reasoning:</h6>
+                                <ul class="list-group list-group-flush">
+                                    {% for reason in signal.reasoning %}
+                                        <li class="list-group-item bg-transparent text-secondary py-1">
+                                            <i class="bi bi-check-circle me-2" style="color: var(--accent-cyan);"></i>{{ reason }}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="bi bi-info-square me-2"></i>Market Details
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="stat-label">Price to Beat</div>
+                        <div class="stat-value" style="font-size: 1.25rem;">
+                            {% if market.price_to_beat %}
+                                ${{ "{:,.2f}".format(market.price_to_beat) }}
+                            {% else %}
+                                --
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="stat-label">Current Price</div>
+                        <div class="stat-value" style="font-size: 1.25rem;">
+                            {% if market.live_price %}
+                                ${{ "{:,.2f}".format(market.live_price) }}
+                            {% else %}
+                                --
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="stat-label">Market ID</div>
+                        <div class="mono small text-secondary">{{ market.market_id[:20] if market.market_id else '--' }}...</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="stat-label">Event</div>
+                        <div class="small text-secondary">{{ market.event_title[:50] if market.event_title else '--' }}...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mt-2">
+        <div class="col-12">
+            <h4 class="text-secondary mb-3">
+                <i class="bi bi-calendar-check me-2"></i>Today's Performance
+            </h4>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value">{{ today_stats.total_signals if today_stats.total_signals is defined else 0 }}</div>
+                    <div class="stat-label">Total Signals</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value signal-up">{{ today_stats.up_signals if today_stats.up_signals is defined else 0 }}</div>
+                    <div class="stat-label">UP Signals</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value signal-down">{{ today_stats.down_signals if today_stats.down_signals is defined else 0 }}</div>
+                    <div class="stat-label">DOWN Signals</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value">{{ today_stats.correct_count if today_stats.correct_count is defined else 0 }}/{{ today_stats.resolved_count if today_stats.resolved_count is defined else 0 }}</div>
+                    <div class="stat-label">Correct</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value">{{ "%.1f"|format(today_stats.win_rate if today_stats.win_rate is defined else 0) }}%</div>
+                    <div class="stat-label">Win Rate</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value {% if today_stats.current_streak is defined and today_stats.current_streak > 0 %}signal-up{% elif today_stats.current_streak is defined and today_stats.current_streak < 0 %}signal-down{% endif %}">
+                        {{ today_stats.current_streak if today_stats.current_streak is defined else 0 }}
+                    </div>
+                    <div class="stat-label">Streak</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mt-2">
+        <div class="col-12">
+            <h4 class="text-secondary mb-3">
+                <i class="bi bi-collection me-2"></i>Recent Signals
+            </h4>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-dark mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Signal</th>
+                                    <th>Confidence</th>
+                                    <th>Regime</th>
+                                    <th>Outcome</th>
+                                    <th>Result</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for sig in recent_signals %}
+                                <tr>
+                                    <td class="mono small">{{ sig.timestamp[:19] if sig.timestamp else '--' }}</td>
+                                    <td>
+                                        <span class="{% if sig.signal_direction == 'UP' %}signal-up{% elif sig.signal_direction == 'DOWN' %}signal-down{% endif %}">
+                                            {{ sig.signal_direction }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="tier-badge tier-{{ sig.confidence_tier|lower if sig.confidence_tier else 'weak' }}">
+                                            {{ sig.confidence }}
+                                        </span>
+                                    </td>
+                                    <td><span class="regime-badge regime-{{ sig.regime if sig.regime else 'sideways' }}">{{ sig.regime|upper if sig.regime else 'N/A' }}</span></td>
+                                    <td>
+                                        {% if sig.resolved_outcome %}
+                                            <span class="{% if sig.resolved_outcome == 'UP' %}signal-up{% else %}signal-down{% endif %}">
+                                                {{ sig.resolved_outcome }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-secondary">Pending</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if sig.is_correct is true %}
+                                            <span class="text-success"><i class="bi bi-check-circle-fill"></i> Correct</span>
+                                        {% elif sig.is_correct is false %}
+                                            <span class="text-danger"><i class="bi bi-x-circle-fill"></i> Wrong</span>
+                                        {% else %}
+                                            <span class="text-secondary">--</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-secondary py-4">No signals yet. Signals will appear here when generated.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let timeRemaining = {{ market.time_remaining if market.time_remaining else 0 }};
+
+function updateCountdown() {
+    if (timeRemaining <= 0) {
+        document.getElementById('countdown').textContent = 'ENDED';
+        document.getElementById('window-status').textContent = 'Ended';
+        document.getElementById('window-status').className = 'badge bg-danger';
+        return;
+    }
+    
+    const minutes = Math.floor(timeRemaining / 60);
+    const seconds = timeRemaining % 60;
+    document.getElementById('countdown').textContent = 
+        String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+    
+    if (timeRemaining <= 60) {
+        document.getElementById('window-status').textContent = 'Final Minute';
+        document.getElementById('window-status').className = 'badge bg-warning text-dark';
+    }
+    
+    timeRemaining--;
+}
+
+setInterval(updateCountdown, 1000);
+updateCountdown();
+
+setInterval(function() {
+    fetch('/api/signal/current')
+        .then(response => response.json())
+        .then(data => {
+            console.log('Signal updated:', data);
+        })
+        .catch(error => console.error('Error updating signal:', error));
+}, 5000);
+</script>
+{% endblock %}

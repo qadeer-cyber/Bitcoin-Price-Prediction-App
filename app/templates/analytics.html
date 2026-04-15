@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - PolySignal BTC{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <h3 class="text-secondary">
+                <i class="bi bi-bar-chart-line me-2"></i>Analytics
+            </h3>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value">{{ today_stats.total_signals if today_stats.total_signals is defined else 0 }}</div>
+                    <div class="stat-label">Total Signals</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value signal-up">{{ today_stats.correct_count if today_stats.correct_count is defined else 0 }}</div>
+                    <div class="stat-label">Correct</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value signal-down">{{ today_stats.wrong_count if today_stats.wrong_count is defined else 0 }}</div>
+                    <div class="stat-label">Wrong</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value" style="color: var(--accent-cyan);">{{ "%.1f"|format(today_stats.win_rate if today_stats.win_rate is defined else 0) }}%</div>
+                    <div class="stat-label">Win Rate</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value" style="color: var(--accent-violet);">{{ "%.1f"|format(today_stats.actionable_win_rate if today_stats.actionable_win_rate is defined else 0) }}%</div>
+                    <div class="stat-label">Actionable %</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-2 col-md-4">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="stat-value">{{ "%.1f"|format(today_stats.avg_confidence if today_stats.avg_confidence is defined else 0) }}</div>
+                    <div class="stat-label">Avg Confidence</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-pie-chart me-2"></i>Accuracy by Confidence Bucket
+                </div>
+                <div class="card-body">
+                    <div id="confidence-bucket-chart"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-clock me-2"></i>Accuracy by Hour of Day
+                </div>
+                <div class="card-body">
+                    <div id="hourly-chart"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mt-2">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-diagram-3 me-2"></i>Regime Performance
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-dark">
+                            <thead>
+                                <tr>
+                                    <th>Regime</th>
+                                    <th>Total</th>
+                                    <th>Correct</th>
+                                    <th>Accuracy</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for reg, data in regime.items() %}
+                                <tr>
+                                    <td><span class="regime-badge regime-{{ reg }}">{{ reg|upper }}</span></td>
+                                    <td>{{ data.total }}</td>
+                                    <td>{{ data.correct }}</td>
+                                    <td>
+                                        <span class="{% if data.accuracy >= 50 %}signal-up{% else %}signal-down{% endif %}">
+                                            {{ "%.1f"|format(data.accuracy) }}%
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-arrow-up-down me-2"></i>UP vs DOWN Performance
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <div class="stat-value signal-up">{{ "%.1f"|format(up_down.up.accuracy if up_down.up else 0) }}%</div>
+                            <div class="stat-label">UP Accuracy</div>
+                            <div class="text-secondary small mt-1">{{ up_down.up.total if up_down.up else 0 }} signals</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-value signal-down">{{ "%.1f"|format(up_down.down.accuracy if up_down.down else 0) }}%</div>
+                            <div class="stat-label">DOWN Accuracy</div>
+                            <div class="text-secondary small mt-1">{{ up_down.down.total if up_down.down else 0 }} signals</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mt-2">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-graph-up me-2"></i>Rolling Accuracy (Last 10)
+                </div>
+                <div class="card-body">
+                    <div id="rolling-chart"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-cash me-2"></i>Simulated PnL
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <div class="stat-value">{{ "$%.2f"|format(pnl.total_staked if pnl else 0) }}</div>
+                            <div class="stat-label">Total Staked</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="stat-value {% if pnl and pnl.net_pnl > 0 %}signal-up{% elif pnl and pnl.net_pnl < 0 %}signal-down{% endif %}">
+                                {{ "$%.2f"|format(pnl.net_pnl if pnl else 0) }}
+                            </div>
+                            <div class="stat-label">Net PnL</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="stat-value" style="color: var(--accent-cyan);">{{ "%.1f"|format(pnl.roi if pnl else 0) }}%</div>
+                            <div class="stat-label">ROI</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mt-2">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-grid me-2"></i>Confusion Matrix
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-3">
+                            <div class="card bg-transparent border-success">
+                                <div class="card-body">
+                                    <div class="stat-value signal-up" id="true-positives">0</div>
+                                    <div class="stat-label">Pred UP / Actual UP</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="card bg-transparent border-danger">
+                                <div class="card-body">
+                                    <div class="stat-value signal-down" id="false-positives">0</div>
+                                    <div class="stat-label">Pred UP / Actual DOWN</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="card bg-transparent border-success">
+                                <div class="card-body">
+                                    <div class="stat-value signal-up" id="true-negatives">0</div>
+                                    <div class="stat-label">Pred DOWN / Actual DOWN</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="card bg-transparent border-danger">
+                                <div class="card-body">
+                                    <div class="stat-value signal-down" id="false-negatives">0</div>
+                                    <div class="stat-label">Pred DOWN / Actual UP</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const confidenceBucketData = {{ confidence_buckets | tojson }};
+const hourlyData = {{ hourly | tojson }};
+const rollingData = {{ rolling | tojson }};
+
+const bucketLabels = Object.keys(confidenceBucketData);
+const bucketAccuracy = bucketLabels.map(k => confidenceBucketData[k].accuracy);
+const bucketTotal = bucketLabels.map(k => confidenceBucketData[k].total);
+
+const bucketChart = new ApexCharts(document.querySelector("#confidence-bucket-chart"), {
+    series: [{
+        name: 'Accuracy',
+        data: bucketAccuracy
+    }],
+    chart: {
+        type: 'bar',
+        height: 250,
+        toolbar: { show: false }
+    },
+    colors: ['#00d4ff'],
+    plotOptions: {
+        bar: {
+            borderRadius: 4,
+            dataLabels: {
+                position: 'top'
+            }
+        }
+    },
+    dataLabels: {
+        enabled: true,
+        formatter: val => val.toFixed(1) + '%',
+        style: { colors: ['#e2e8f0'] }
+    },
+    xaxis: {
+        categories: bucketLabels,
+        labels: { style: { colors: '#94a3b8' } }
+    },
+    yaxis: {
+        labels: { 
+            style: { colors: '#94a3b8' },
+            formatter: val => val.toFixed(0) + '%'
+        },
+        max: 100
+    },
+    theme: { mode: 'dark' }
+});
+bucketChart.render();
+
+const hourLabels = Object.keys(hourlyData).filter(h => hourlyData[h].total > 0);
+const hourAccuracy = hourLabels.map(h => hourlyData[h].accuracy);
+
+const hourlyChart = new ApexCharts(document.querySelector("#hourly-chart"), {
+    series: [{
+        name: 'Accuracy',
+        data: hourAccuracy
+    }],
+    chart: {
+        type: 'area',
+        height: 250,
+        toolbar: { show: false }
+    },
+    colors: ['#8b5cf6'],
+    fill: {
+        type: 'gradient',
+        gradient: {
+            shadeIntensity: 1,
+            opacityFrom: 0.7,
+            opacityTo: 0.1
+        }
+    },
+    stroke: { curve: 'smooth', width: 2 },
+    xaxis: {
+        categories: hourLabels,
+        labels: { style: { colors: '#94a3b8' } }
+    },
+    yaxis: {
+        labels: { 
+            style: { colors: '#94a3b8' },
+            formatter: val => val.toFixed(0) + '%'
+        },
+        min: 0,
+        max: 100
+    },
+    theme: { mode: 'dark' }
+});
+hourlyChart.render();
+
+if (rollingData.length > 0) {
+    const rollingLabels = rollingData.map((_, i) => 'Window ' + (i + 1));
+    const rollingAccuracy = rollingData.map(d => d.accuracy);
+    
+    const rollingChart = new ApexCharts(document.querySelector("#rolling-chart"), {
+        series: [{
+            name: 'Accuracy',
+            data: rollingAccuracy
+        }],
+        chart: {
+            type: 'line',
+            height: 200,
+            toolbar: { show: false }
+        },
+        colors: ['#10b981'],
+        stroke: { curve: 'smooth', width: 3 },
+        markers: { size: 4 },
+        xaxis: {
+            categories: rollingLabels,
+            labels: { style: { colors: '#94a3b8' } }
+        },
+        yaxis: {
+            labels: { 
+                style: { colors: '#94a3b8' },
+                formatter: val => val.toFixed(0) + '%'
+            },
+            min: 0,
+            max: 100
+        },
+        theme: { mode: 'dark' }
+    });
+    rollingChart.render();
+}
+
+fetch('/api/analytics/confusion-matrix')
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('true-positives').textContent = data.true_positives || 0;
+        document.getElementById('false-positives').textContent = data.false_positives || 0;
+        document.getElementById('true-negatives').textContent = data.true_negatives || 0;
+        document.getElementById('false-negatives').textContent = data.false_negatives || 0;
+    });
+</script>
+{% endblock %}

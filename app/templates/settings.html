@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - PolySignal BTC{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <h3 class="text-secondary">
+                <i class="bi bi-gear me-2"></i>Settings
+            </h3>
+            <p class="text-secondary">Configure signal generation parameters and risk thresholds.</p>
+        </div>
+    </div>
+
+    <form id="settings-form">
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-graph-up me-2"></i>EMA Parameters
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Short EMA Period</label>
+                            <input type="number" class="form-control" name="ema_short" value="{{ settings.ema_short if settings.ema_short else 9 }}" min="1" max="50">
+                            <div class="form-text text-secondary">Used for short-term momentum detection (default: 9)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Medium EMA Period</label>
+                            <input type="number" class="form-control" name="ema_medium" value="{{ settings.ema_medium if settings.ema_medium else 20 }}" min="1" max="100">
+                            <div class="form-text text-secondary">Used for medium-term trend (default: 20)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Long EMA Period</label>
+                            <input type="number" class="form-control" name="ema_long" value="{{ settings.ema_long if settings.ema_long else 50 }}" min="1" max="200">
+                            <div class="form-text text-secondary">Used for long-term trend (default: 50)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-gauge me-2"></i>RSI Parameters
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">RSI Period</label>
+                            <input type="number" class="form-control" name="rsi_period" value="{{ settings.rsi_period if settings.rsi_period else 14 }}" min="1" max="30">
+                            <div class="form-text text-secondary">Number of periods for RSI calculation (default: 14)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Overbought Threshold</label>
+                            <input type="number" class="form-control" name="rsi_overbought" value="{{ settings.rsi_overbought if settings.rsi_overbought else 70 }}" min="50" max="100">
+                            <div class="form-text text-secondary">RSI level considered overbought (default: 70)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Oversold Threshold</label>
+                            <input type="number" class="form-control" name="rsi_oversold" value="{{ settings.rsi_oversold if settings.rsi_oversold else 30 }}" min="0" max="50">
+                            <div class="form-text text-secondary">RSI level considered oversold (default: 30)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mt-2">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-waveform me-2"></i>MACD Parameters
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Fast Period</label>
+                            <input type="number" class="form-control" name="macd_fast" value="{{ settings.macd_fast if settings.macd_fast else 12 }}" min="1" max="30">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Slow Period</label>
+                            <input type="number" class="form-control" name="macd_slow" value="{{ settings.macd_slow if settings.macd_slow else 26 }}" min="1" max="50">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Signal Line</label>
+                            <input type="number" class="form-control" name="macd_signal" value="{{ settings.macd_signal if settings.macd_signal else 9 }}" min="1" max="20">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-arrows-expand me-2"></i>ATR & Volatility
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">ATR Period</label>
+                            <input type="number" class="form-control" name="atr_period" value="{{ settings.atr_period if settings.atr_period else 14 }}" min="1" max="30">
+                            <div class="form-text text-secondary">Number of periods for ATR calculation (default: 14)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mt-2">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-shield-check me-2"></i>Confidence Thresholds
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Minimum Confidence Threshold</label>
+                            <input type="number" class="form-control" name="confidence_threshold" value="{{ settings.confidence_threshold if settings.confidence_threshold else 50 }}" min="0" max="100">
+                            <div class="form-text text-secondary">Minimum confidence to generate signal (default: 50)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">No-Trade Aggressiveness</label>
+                            <input type="number" class="form-control" name="no_trade_aggressiveness" value="{{ settings.no_trade_aggressiveness if settings.no_trade_aggressiveness else 60 }}" min="0" max="100">
+                            <div class="form-text text-secondary">Confidence above this generates signal (default: 60)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-exclamation-triangle me-2"></i>Risk Settings
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Spread Warning Threshold (%)</label>
+                            <input type="number" class="form-control" name="spread_warning" value="{{ settings.spread_warning if settings.spread_warning else 5 }}" min="0" max="20" step="0.5">
+                            <div class="form-text text-secondary">Warn if spread exceeds this % (default: 5%)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Min Liquidity Warning</label>
+                            <input type="number" class="form-control" name="min_liquidity" value="{{ settings.min_liquidity if settings.min_liquidity else 1000 }}" min="0">
+                            <div class="form-text text-secondary">Warn if volume below this threshold (default: $1000)</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Final Minute Penalty</label>
+                            <input type="number" class="form-control" name="final_minute_penalty" value="{{ settings.final_minute_penalty if settings.final_minute_penalty else 20 }}" min="0" max="50">
+                            <div class="form-text text-secondary">Confidence penalty when < 60s remaining (default: 20)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-4 mt-2">
+            <div class="col-lg-6">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-arrow-repeat me-2"></i>Refresh Settings
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">Signal Refresh Interval (seconds)</label>
+                            <input type="number" class="form-control" name="refresh_interval" value="{{ settings.refresh_interval if settings.refresh_interval else 5 }}" min="1" max="60">
+                            <div class="form-text text-secondary">How often to generate new signals (default: 5s)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <button type="submit" class="btn btn-primary me-2">
+                    <i class="bi bi-save me-2"></i>Save Settings
+                </button>
+                <button type="button" class="btn btn-outline" onclick="resetToDefaults()">
+                    <i class="bi bi-arrow-counterclockwise me-2"></i>Reset to Defaults
+                </button>
+            </div>
+        </div>
+    </form>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <h5><i class="bi bi-info-circle me-2"></i>Important Notes</h5>
+                <ul class="mb-0">
+                    <li>This is a <strong>decision-support and analytics platform</strong>, not a trading bot.</li>
+                    <li>Signals are generated based on confluence of technical factors - no guarantee of accuracy.</li>
+                    <li>Polymarket resolves based on <strong>Chainlink BTC/USD</strong> data, not exchange prices.</li>
+                    <li>Binance price is used as supplementary reference only.</li>
+                    <li>Always do your own research before making trading decisions.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('settings-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const settings = {};
+    
+    for (let [key, value] of formData.entries()) {
+        settings[key] = parseFloat(value) || value;
+    }
+    
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(settings)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert('Settings saved successfully!');
+        } else {
+            alert('Error saving settings: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Error saving settings: ' + error);
+    });
+});
+
+function resetToDefaults() {
+    if (!confirm('Reset all settings to defaults?')) return;
+    
+    const defaults = {
+        ema_short: 9,
+        ema_medium: 20,
+        ema_long: 50,
+        rsi_period: 14,
+        rsi_overbought: 70,
+        rsi_oversold: 30,
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        atr_period: 14,
+        confidence_threshold: 50,
+        no_trade_aggressiveness: 60,
+        spread_warning: 5,
+        min_liquidity: 1000,
+        final_minute_penalty: 20,
+        refresh_interval: 5
+    };
+    
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(defaults)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            location.reload();
+        }
+    });
+}
+</script>
+{% endblock %}

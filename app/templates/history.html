@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+
+{% block title %}Signal History - PolySignal BTC{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <h3 class="text-secondary">
+                <i class="bi bi-clock-history me-2"></i>Signal History
+            </h3>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-2">
+                            <label class="form-label">Signal Type</label>
+                            <select class="form-select" id="filter-direction">
+                                <option value="">All</option>
+                                <option value="UP">UP</option>
+                                <option value="DOWN">DOWN</option>
+                                <option value="NO_TRADE">NO TRADE</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Min Confidence</label>
+                            <select class="form-select" id="filter-confidence">
+                                <option value="0">All</option>
+                                <option value="90">90+</option>
+                                <option value="80">80+</option>
+                                <option value="70">70+</option>
+                                <option value="60">60+</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Outcome</label>
+                            <select class="form-select" id="filter-outcome">
+                                <option value="">All</option>
+                                <option value="true">Correct</option>
+                                <option value="false">Wrong</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">Limit</label>
+                            <select class="form-select" id="filter-limit">
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="200">200</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 d-flex align-items-end">
+                            <button class="btn btn-primary me-2" onclick="applyFilters()">
+                                <i class="bi bi-funnel me-1"></i>Apply
+                            </button>
+                            <button class="btn btn-outline" onclick="resetFilters()">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-dark mb-0" id="signals-table">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Market ID</th>
+                                    <th>Signal</th>
+                                    <th>Confidence</th>
+                                    <th>Price to Beat</th>
+                                    <th>Price at Signal</th>
+                                    <th>Regime</th>
+                                    <th>Market Prob UP</th>
+                                    <th>Outcome</th>
+                                    <th>Result</th>
+                                    <th>Reasoning</th>
+                                </tr>
+                            </thead>
+                            <tbody id="signals-body">
+                                {% for sig in signals %}
+                                <tr>
+                                    <td class="mono small">{{ sig.timestamp[:19] if sig.timestamp else '--' }}</td>
+                                    <td class="mono small text-secondary">{{ sig.market_id[:16] if sig.market_id else '--' }}...</td>
+                                    <td>
+                                        <span class="{% if sig.signal_direction == 'UP' %}signal-up{% elif sig.signal_direction == 'DOWN' %}signal-down{% else %}signal-none{% endif %}" style="font-weight: 600;">
+                                            {{ sig.signal_direction }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="tier-badge tier-{{ sig.confidence_tier|lower if sig.confidence_tier else 'weak' }}">
+                                            {{ sig.confidence }}
+                                        </span>
+                                    </td>
+                                    <td class="mono">{{ "$%.2f"|format(sig.price_to_beat) if sig.price_to_beat else '--' }}</td>
+                                    <td class="mono">{{ "$%.2f"|format(sig.live_price_at_signal) if sig.live_price_at_signal else '--' }}</td>
+                                    <td><span class="regime-badge regime-{{ sig.regime if sig.regime else 'sideways' }}">{{ sig.regime|upper if sig.regime else 'N/A' }}</span></td>
+                                    <td>{{ "%.1f"|format(sig.market_probability_up * 100) if sig.market_probability_up else '--' }}%</td>
+                                    <td>
+                                        {% if sig.resolved_outcome %}
+                                            <span class="{% if sig.resolved_outcome == 'UP' %}signal-up{% else %}signal-down{% endif %}">
+                                                {{ sig.resolved_outcome }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-secondary">Pending</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if sig.is_correct is true %}
+                                            <span class="text-success"><i class="bi bi-check-circle-fill"></i></span>
+                                        {% elif sig.is_correct is false %}
+                                            <span class="text-danger"><i class="bi bi-x-circle-fill"></i></span>
+                                        {% else %}
+                                            <span class="text-secondary">--</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-secondary small" style="max-width: 200px;">{{ sig.reasoning[:100] if sig.reasoning else '--' }}...</td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="11" class="text-center text-secondary py-4">
+                                        No signals found. Generate some signals from the dashboard.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function applyFilters() {
+    const direction = document.getElementById('filter-direction').value;
+    const minConfidence = document.getElementById('filter-confidence').value;
+    const correct = document.getElementById('filter-outcome').value;
+    const limit = document.getElementById('filter-limit').value;
+    
+    let url = '/api/signals/history?limit=' + limit;
+    if (direction) url += '&direction=' + direction;
+    if (minConfidence) url += '&min_confidence=' + minConfidence;
+    if (correct) url += '&correct=' + correct;
+    
+    fetch(url)
+        .then(response => response.json())
+        .then(data => {
+            updateTable(data.signals);
+        })
+        .catch(error => console.error('Error fetching signals:', error));
+}
+
+function updateTable(signals) {
+    const tbody = document.getElementById('signals-body');
+    tbody.innerHTML = '';
+    
+    if (signals.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="11" class="text-center text-secondary py-4">No signals found.</td></tr>';
+        return;
+    }
+    
+    signals.forEach(sig => {
+        const row = document.createElement('tr');
+        
+        const directionClass = sig.signal_direction === 'UP' ? 'signal-up' : (sig.signal_direction === 'DOWN' ? 'signal-down' : 'signal-none');
+        const tierClass = (sig.confidence_tier || 'weak').toLowerCase();
+        const regimeClass = (sig.regime || 'sideways').toLowerCase();
+        
+        const outcomeHtml = sig.resolved_outcome 
+            ? `<span class="${sig.resolved_outcome === 'UP' ? 'signal-up' : 'signal-down'}">${sig.resolved_outcome}</span>`
+            : '<span class="text-secondary">Pending</span>';
+        
+        const resultHtml = sig.is_correct === true 
+            ? '<span class="text-success"><i class="bi bi-check-circle-fill"></i></span>'
+            : (sig.is_correct === false 
+                ? '<span class="text-danger"><i class="bi bi-x-circle-fill"></i></span>'
+                : '<span class="text-secondary">--</span>');
+        
+        row.innerHTML = `
+            <td class="mono small">${sig.timestamp ? sig.timestamp.substring(0, 19) : '--'}</td>
+            <td class="mono small text-secondary">${sig.market_id ? sig.market_id.substring(0, 16) + '...' : '--'}</td>
+            <td><span class="${directionClass}" style="font-weight: 600;">${sig.signal_direction}</span></td>
+            <td><span class="tier-badge tier-${tierClass}">${sig.confidence}</span></td>
+            <td class="mono">${sig.price_to_beat ? '$' + sig.price_to_beat.toFixed(2) : '--'}</td>
+            <td class="mono">${sig.live_price_at_signal ? '$' + sig.live_price_at_signal.toFixed(2) : '--'}</td>
+            <td><span class="regime-badge regime-${regimeClass}">${sig.regime ? sig.regime.toUpperCase() : 'N/A'}</span></td>
+            <td>${sig.market_probability_up ? (sig.market_probability_up * 100).toFixed(1) + '%' : '--'}</td>
+            <td>${outcomeHtml}</td>
+            <td>${resultHtml}</td>
+            <td class="text-secondary small" style="max-width: 200px;">${sig.reasoning ? sig.reasoning.substring(0, 100) + '...' : '--'}</td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+}
+
+function resetFilters() {
+    document.getElementById('filter-direction').value = '';
+    document.getElementById('filter-confidence').value = '0';
+    document.getElementById('filter-outcome').value = '';
+    document.getElementById('filter-limit').value = '50';
+    applyFilters();
+}
+</script>
+{% endblock %}
