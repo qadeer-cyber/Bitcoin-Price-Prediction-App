@@ -81,12 +81,16 @@ def create_app():
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'poly-signal-btc-2026-secret')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///polysignal.db')
     
-    pool_size = int(os.environ.get('SQLALCHEMY_POOL_SIZE', '10'))
-    max_overflow = int(os.environ.get('SQLALCHEMY_MAX_OVERFLOW', '20'))
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-        'pool_size': pool_size,
-        'max_overflow': max_overflow
-    }
+    # SQLite doesn't support pool_size/max_overflow - only add for PostgreSQL/MySQL
+    db_uri = app.config['SQLALCHEMY_DATABASE_URI']
+    if not db_uri.startswith('sqlite:'):
+        pool_size = int(os.environ.get('SQLALCHEMY_POOL_SIZE', '10'))
+        max_overflow = int(os.environ.get('SQLALCHEMY_MAX_OVERFLOW', '20'))
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_size': pool_size,
+            'max_overflow': max_overflow
+        }
+    
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
     db.init_app(app)
