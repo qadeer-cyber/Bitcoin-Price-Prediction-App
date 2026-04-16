@@ -1,17 +1,27 @@
 import os
 import sys
 import logging
-import sentry_sdk
-from sentry_sdk.integrations.flask import FlaskIntegration
+
+# Safe imports - wrap optional dependencies
+def _try_import(name, default=None):
+    """Try to import optional package, return default if not available"""
+    try:
+        return __import__(name)
+    except ImportError:
+        return default
+
+psutil = _try_import('psutil')
+sentry_sdk = _try_import('sentry_sdk')
 
 # Initialize memory guardrail
 def check_memory():
     """Check available memory before heavy operations"""
-    try:
-        import psutil
-        return psutil.virtual_memory().percent < 85
-    except:
-        return True
+    if psutil:
+        try:
+            return psutil.virtual_memory().percent < 85
+        except:
+            return True
+    return True
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,29 +31,42 @@ from flask_login import LoginManager
 from datetime import datetime, timezone
 
 from app.models.db import db, Settings, User
+# Try to import optional blueprints
+ws_bp = None
+try:
+    from app.routes.websocket import ws_bp
+except ImportError:
+    logging.info('WebSocket module not available')
+
+# Import routes
 from app.routes import dashboard, api
 from app.routes.auth import auth_bp
-from app.routes.websocket import ws_bp
 
-# Initialize Sentry (optional)
-sentry_dsn = os.environ.get('SENTRY_DSN')
-if sentry_dsn:
-    sentry_sdk.init(
-        dsn=sentry_dsn,
-        integrations=[FlaskIntegration()],
-        traces_sample_rate=0.1,
-        environment=os.environ.get('FLASK_ENV', 'production')
-    )
-    logger.info('Sentry initialized')
+# Initialize Sentry (optional - no-op if not available)
+if sentry_sdk:
+    try:
+        sentry_dsn = os.environ.get('SENTRY_DSN')
+        if sentry_dsn:
+            from sentry_sdk.integrations.flask import FlaskIntegration
+            sentry_sdk.init(
+                dsn=sentry_dsn,
+                integrations=[FlaskIntegration()],
+                traces_sample_rate=0.1,
+                environment=os.environ.get('FLASK_ENV', 'production')
+            )
+            logging.info('Sentry initialized')
+    except:
+        pass
 
-# APScheduler for lightweight background tasks (replaces Celery)
+# APScheduler for lightweight background tasks
+SCHEDULER = None
+SCHEDULER_AVAILABLE = False
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     SCHEDULER = BackgroundScheduler()
     SCHEDULER_AVAILABLE = True
 except ImportError:
-    SCHEDULER = None
-    SCHEDULER_AVAILABLE = False
+    logging.info('APScheduler not available - using simple polling')
 
 login_manager = LoginManager()
 login_manager.login_view = 'dashboard.login'
@@ -51,18 +74,19 @@ login_manager.login_view = 'dashboard.login'
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def create_app():
     app = Flask(__name__, template_folder='app/templates', static_folder='app/static')
     
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'poly-signal-btc-2026-secret')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///polysignal.db')
+    
     pool_size = int(os.environ.get('SQLALCHEMY_POOL_SIZE', '10'))
     max_overflow = int(os.environ.get('SQLALCHEMY_MAX_OVERFLOW', '20'))
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'pool_size': pool_size,
         'max_overflow': max_overflow
     }
-    
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
     db.init_app(app)
@@ -79,18 +103,12 @@ def create_app():
         _init_telegram_bot()
         _init_scheduler()
     
-    # Memory guard: Skip heavy background tasks on low RAM
-    if check_memory() and SCHEDULER_AVAILABLE:
-        try:
-            SCHEDULER.start()
-            logger.info('APScheduler started')
-        except Exception as e:
-            logger.warning(f'Scheduler start failed: {e}')
-    
     app.register_blueprint(dashboard.dashboard_bp)
     app.register_blueprint(api.api_bp, url_prefix='/api')
     app.register_blueprint(auth_bp, url_prefix='/api')
-    app.register_blueprint(ws_bp, url_prefix='/api')
+    
+    if ws_bp:
+        app.register_blueprint(ws_bp, url_prefix='/api')
     
     @app.context_processor
     def inject_now():
@@ -138,22 +156,24 @@ def _init_telegram_bot():
 
 
 def _init_scheduler():
-    """Initialize lightweight scheduler (replaces Celery)"""
+    """Initialize lightweight scheduler"""
     if not SCHEDULER_AVAILABLE or not check_memory():
-        logger.info('APScheduler skipped (low RAM or not available)')
+        logger.info('Scheduler skipped (low RAM or not available)')
         return
     
     try:
-# Check pending markets every 5 minutes (only if not already running)
-        if not SCHEDULER.running:
-            SCHEDULER.add_job(
-            check_pending,
-            'interval',
-            minutes=5,
-            id='check_pending'
-        )
+        def check_pending():
+            if check_memory():
+                try:
+                    from app.services.settlement_service import settlement_service
+                    settlement_service.check_pending_markets()
+                except Exception as e:
+                    logger.warning(f'Settlement check failed: {e}')
         
-        logger.info('APScheduler jobs registered')
+        if not SCHEDULER.running:
+            SCHEDULER.add_job(check_pending, 'interval', minutes=5, id='check_pending')
+            SCHEDULER.start()
+            logger.info('Scheduler started')
     except Exception as e:
         logger.warning(f'Scheduler setup failed: {e}')
 

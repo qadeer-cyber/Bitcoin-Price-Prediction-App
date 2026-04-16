@@ -1,0 +1,31 @@
+# Polysignal BTC V5 - NO-COMPILE Edition (macOS 10.13 / No Xcode)
+# Pure-Python only - NO C/C++ compilation needed
+
+# Core Web
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+Flask-Login==0.6.2
+Werkzeug==2.3.7
+
+# Database (SQLite only - no PostgreSQL)
+SQLAlchemy==1.4.46
+# Note: Uses sqlite3 (built into Python) - no psycopg2
+
+# HTTP & Data
+requests==2.31.0
+pandas==1.5.3
+numpy==1.24.4
+
+# ML (inference only - no xgboost/torch)
+scikit-learn==1.2.2
+
+# Scheduling
+APScheduler==3.10.4
+
+# Utilities
+python-dotenv==1.0.0
+psutil==5.9.5
+python-dateutil==2.8.2
+
+# Server
+gunicorn==20.1.0
