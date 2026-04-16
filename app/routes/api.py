@@ -75,7 +75,8 @@ def get_current_market():
             'seconds_remaining': market_data.get('seconds_remaining', 300),
             'volume': market_data.get('volume', 0),
             'status': market_data.get('status', 'live'),
-            'data_source': market_data.get('data_source', 'api')
+            'data_source': market_data.get('data_source', 'api'),
+            'is_synthetic': market_data.get('is_synthetic', False)
         })
     
     except Exception as e:

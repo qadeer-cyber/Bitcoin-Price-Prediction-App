@@ -110,6 +110,11 @@
                             <div class="mt-3">
                                 <h6 class="text-secondary mb-2">Signal Reasoning:</h6>
                                 <ul class="list-group list-group-flush">
+                                    {% if market.is_synthetic %}
+                                        <li class="list-group-item bg-transparent text-warning py-1">
+                                            <i class="bi bi-exclamation-triangle me-2"></i>Synthetic window (no Polymarket market)
+                                        </li>
+                                    {% endif %}
                                     {% for reason in signal.reasoning %}
                                         <li class="list-group-item bg-transparent text-secondary py-1">
                                             <i class="bi bi-check-circle me-2" style="color: var(--accent-cyan);"></i>{{ reason }}
@@ -151,7 +156,14 @@
                     </div>
                     <div class="mb-3">
                         <div class="stat-label">Market ID</div>
-                        <div class="mono small text-secondary">{{ market.market_id[:20] if market.market_id else '--' }}...</div>
+                        <div class="mono small text-secondary">
+                            {% if market.is_synthetic %}
+                            <span class="badge bg-warning text-dark me-1">SYNTHETIC</span>
+                            {% else %}
+                            <span class="badge bg-success me-1">LIVE</span>
+                            {% endif %}
+                            {{ market.market_id[:20] if market.market_id else '--' }}...
+                        </div>
                     </div>
                     <div class="mb-3">
                         <div class="stat-label">Event</div>

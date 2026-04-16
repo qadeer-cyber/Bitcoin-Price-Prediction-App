@@ -40,6 +40,10 @@ class PolymarketService:
         self._fallback_market = None
         self._fallback_btc_price = None
         self._api_unreachable = False
+        
+        self._window_open_price = None
+        self._window_start_time = None
+        self._current_window_key = None
     
     def _get_binance_live_price(self) -> Optional[float]:
         """Get live BTC price from Binance REST API"""
@@ -189,7 +193,8 @@ class PolymarketService:
             'window_end': market.get('endDate'),
             'volume': market.get('volume', 0),
             'status': 'live' if seconds_remaining > 0 else 'resolved',
-            'data_source': 'api' if not self._api_unreachable else 'fallback'
+            'data_source': 'api' if not self._api_unreachable else 'fallback',
+            'is_synthetic': market.get('is_synthetic', False)
         }
     
     def _get_current_btc_5min_market_live(self) -> Optional[Dict]:
@@ -228,21 +233,21 @@ class PolymarketService:
                             btc_markets.append(market)
             
             if btc_markets:
+                btc_markets[0]['is_synthetic'] = False
                 return btc_markets[0]
             
-            self._api_unreachable = True
-            return None
+            return self.get_synthetic_5m_window()
             
         except Exception as e:
             logger.warning(f'Error fetching live market: {e}')
             self._api_unreachable = True
-            return None
+            return self.get_synthetic_5m_window()
     
     def _get_polymarket_resolution_price(self) -> Optional[float]:
         """Get price from Polymarket Gamma API - Primary source"""
         try:
             market = self.get_current_btc_5min_market()
-            if not market:
+            if not market or market.get('is_synthetic'):
                 return None
             
             resolution_price = market.get('resolutionPrice')
@@ -341,6 +346,56 @@ class PolymarketService:
             logger.error(f'Error searching BTC 5min markets: {e}')
             return []
     
+    def get_synthetic_5m_window(self) -> Optional[Dict]:
+        """Generate synthetic 5-minute window when Polymarket markets unavailable"""
+        now = datetime.now(timezone.utc)
+        
+        window_start = now.replace(minute=(now.minute // 5) * 5, second=0, microsecond=0)
+        window_end = window_start + timedelta(minutes=5)
+        window_key = window_start.replace(tzinfo=timezone.utc).timestamp()
+        
+        if self._current_window_key != window_key:
+            self._current_window_key = window_key
+            self._window_open_price = self.get_btc_price_with_fallback()
+            self._window_start_time = window_start
+        
+        seconds_remaining = max(0, (window_end - now).total_seconds())
+        
+        return {
+            'id': f'synthetic_{int(window_key)}',
+            'question': f'Will BTC be > ${self._window_open_price:.2f} at {window_end.strftime("%H:%M")} UTC?',
+            'conditionId': f'synthetic_{int(window_key)}',
+            'slug': f'synthetic-btc-5m-{int(window_key)}',
+            'description': f'5-minute window: {window_start.strftime("%H:%M")}-{window_end.strftime("%H:%M")} UTC. Price to beat: ${self._window_open_price:.2f}',
+            'outcomePrices': json.dumps([str(min(1.0, max(0.0, (self._window_open_price or 50000) / 100000))), '0.5']),
+            'volume': '0',
+            'liquidity': '0',
+            'active': True,
+            'closed': False,
+            'endDate': window_end.isoformat(),
+            'startDate': window_start.isoformat(),
+            'price_to_beat': self._window_open_price,
+            'window_start': window_start,
+            'window_end': window_end,
+            'window_key': window_key,
+            'seconds_remaining': seconds_remaining,
+            'is_synthetic': True,
+            'resolutionSource': 'Binance REST API',
+            'groupItemTitle': 'Synthetic BTC 5min',
+            'volume24hr': '0',
+            'volume1wk': '0',
+            'volume1mo': '0',
+            'volumeClob': '0',
+            'liquidityClob': '0',
+            'lastTradePrice': 0.5,
+            'bestBid': 0.5,
+            'bestAsk': 0.5,
+            'spread': 0.0,
+            'oneDayPriceChange': 0.0,
+            'oneWeekPriceChange': 0.0,
+            'oneMonthPriceChange': 0.0
+        }
+    
     def get_current_btc_5min_market(self) -> Optional[Dict]:
         markets = self.search_btc_5min_markets(limit=20)
         
@@ -351,13 +406,21 @@ class PolymarketService:
             
             if start_time and end_time:
                 if start_time <= now < end_time:
+                    market['is_synthetic'] = False
                     return market
                 elif now < start_time:
                     continue
         
-        return markets[0] if markets else None
+        if markets:
+            markets[0]['is_synthetic'] = False
+            return markets[0]
+        
+        return self.get_synthetic_5m_window()
     
     def get_market_details(self, market_id: str) -> Optional[Dict]:
+        if market_id and market_id.startswith('synthetic_'):
+            return self.get_synthetic_5m_window()
+        
         try:
             url = f'{self.GAMMA_API}/markets/{market_id}'
             response = self.session.get(url, timeout=10)
