@@ -88,13 +88,15 @@ class StrategyService:
         if not btc_data or not btc_data.get('price'):
             return self._create_no_trade_signal('No BTC price available')
         
-        price = btc_data['price']
+        price = float(btc_data['price'])
         price_to_beat = market_data.get('price_to_beat')
         
         if price_to_beat is None:
             price_to_beat = price
+        else:
+            price_to_beat = float(price_to_beat)
         
-        up_prob = market_data.get('up_probability', 0.5)
+        up_prob = float(market_data.get('up_probability', 0.5))
         
         factors = {}
         weights = {}
