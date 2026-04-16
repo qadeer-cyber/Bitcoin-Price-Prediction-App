@@ -1,11 +1,11 @@
 # Polysignal BTC V5 - NO-COMPILE Edition (macOS 10.13 / No Xcode)
 # Pure-Python only - NO greenlet/compilation needed
 
-# Core Web (oldest versions WITHOUT greenlet dependency)
+# Core Web (versions WITHOUT greenlet dependency)
 Flask==1.0.4
 Flask-SQLAlchemy==2.4.4
 Flask-Login==0.6.2
-Werkzeug==0.16.1
+Werkzeug==1.0.1
 
 # Database (SQLite only - no PostgreSQL)
 SQLAlchemy==1.3.24
