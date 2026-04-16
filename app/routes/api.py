@@ -1,4 +1,5 @@
 import logging
+import json
 from flask import Blueprint, jsonify, request
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -576,6 +577,91 @@ def get_ml_features():
         return jsonify({'error': str(e)}), 500
 
 
+@api_bp.route('/ml/train', methods=['POST'])
+def train_ml_model():
+    """Train the ML model
+    
+    Body:
+        min_samples: int (optional, default: 100)
+    """
+    try:
+        from app.services.ml_service import ml_prediction_engine
+        
+        data = request.get_json() or {}
+        min_samples = data.get('min_samples', 100)
+        
+        result = ml_prediction_engine.train_model(min_samples=min_samples)
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f'Error training ML model: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/ml/status', methods=['GET'])
+def get_ml_status():
+    """Get ML model status"""
+    try:
+        from app.services.ml_service import ml_prediction_engine
+        
+        status = ml_prediction_engine.get_status()
+        
+        return jsonify(status)
+    
+    except Exception as e:
+        logger.error(f'Error getting ML status: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/ml/predict', methods=['POST'])
+def get_ml_predict():
+    """Get ML prediction for current market
+    
+    If no features provided, uses current market data
+    """
+    try:
+        from app.services.ml_service import ml_prediction_engine
+        
+        data = request.get_json() or {}
+        
+        if data:
+            prediction = ml_prediction_engine.predict(data)
+        else:
+            from app.services.chainlink_service import binance_service
+            from app.services.polymarket_service import polymarket_service
+            
+            btc_price = binance_service.get_btc_usdt_price()
+            market = polymarket_service.get_current_btc_5min_market()
+            
+            features = {
+                'price': btc_price or 0,
+                'price_change_1m': 0,
+                'price_change_5m': 0,
+                'price_change_15m': 0,
+                'rsi_14': 50,
+                'volatility_5m': 0,
+                'volatility_15m': 0,
+                'ma_ratio_5_20': 1.0,
+                'ma_ratio_20_50': 1.0,
+                'market_probability_up': market.get('up_probability', 0.5) if market else 0.5,
+                'signal_confidence': 50,
+                'regime': 'unknown',
+                'time_remaining': 300,
+                'momentum_5': 0,
+                'momentum_15': 0,
+                'trend_strength': 50,
+            }
+            
+            prediction = ml_prediction_engine.predict(features)
+        
+        return jsonify(prediction)
+    
+    except Exception as e:
+        logger.error(f'Error getting ML prediction: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
 @api_bp.route('/analytics/regime', methods=['GET'])
 def get_regime_analysis():
     """Get market regime analysis"""
@@ -702,4 +788,364 @@ def clear_cache():
         return jsonify({'status': 'success', 'message': 'Cache cleared'})
     
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/orderbook/analyze', methods=['GET'])
+def analyze_orderbook():
+    """Get orderbook analysis
+    
+    Query params:
+        market_id: str (optional) - if not provided, uses current market
+    """
+    try:
+        from app.services.orderbook_service import orderbook_service
+        
+        market_id = request.args.get('market_id')
+        
+        result = orderbook_service.get_analysis(market_id)
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f'Error analyzing orderbook: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/orderbook/pressure', methods=['GET'])
+def get_pressure_gauge():
+    """Get orderbook pressure gauge for UI
+    
+    Returns simplified pressure data for dashboard gauge display
+    """
+    try:
+        from app.services.orderbook_service import orderbook_service
+        
+        market_id = request.args.get('market_id')
+        
+        result = orderbook_service.get_pressure_gauge(market_id)
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f'Error getting pressure gauge: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/orderbook/whales', methods=['GET'])
+def get_whale_alerts():
+    """Get recent whale order alerts
+    
+    Query params:
+        limit: int (default: 10)
+    """
+    try:
+        from app.services.orderbook_service import orderbook_service
+        
+        limit = request.args.get('limit', 10, type=int)
+        
+        alerts = orderbook_service._analyzer.get_recent_whale_alerts(limit)
+        
+        return jsonify({'alerts': alerts, 'count': len(alerts)})
+    
+    except Exception as e:
+        logger.error(f'Error getting whale alerts: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/risk/limits', methods=['GET'])
+def get_risk_limits():
+    """Get current risk limits"""
+    try:
+        from app.services.risk_service import risk_engine
+        
+        return jsonify(risk_engine.get_risk_limits())
+    
+    except Exception as e:
+        logger.error(f'Error getting risk limits: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/risk/position_size', methods=['POST'])
+def calculate_position_size():
+    """Calculate position size
+    
+    Body:
+        method: str (kelly, fixed_fractional, volatility_adjusted)
+        account_balance: float
+        win_rate: float (0-1)
+        avg_win_loss_ratio: float
+        volatility: float (optional)
+    """
+    try:
+        from app.services.risk_service import risk_engine
+        
+        data = request.get_json() or {}
+        
+        method = data.get('method', 'fixed_fractional')
+        account_balance = data.get('account_balance', 10000)
+        win_rate = data.get('win_rate', 0.5)
+        avg_win_loss_ratio = data.get('avg_win_loss_ratio', 1.5)
+        volatility = data.get('volatility', 0.02)
+        
+        size = risk_engine.calculate_position_size(
+            method, account_balance, win_rate, avg_win_loss_ratio, volatility
+        )
+        
+        return jsonify({
+            'position_size': size,
+            'method': method,
+            'account_balance': account_balance
+        })
+    
+    except Exception as e:
+        logger.error(f'Error calculating position size: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/risk/circuit_breaker', methods=['GET'])
+def check_circuit_breaker():
+    """Check circuit breaker status
+    
+    Query params:
+        daily_pnl: float
+        account_balance: float
+    """
+    try:
+        from app.services.risk_service import risk_engine
+        
+        daily_pnl = request.args.get('daily_pnl', 0, type=float)
+        account_balance = request.args.get('account_balance', 10000, type=float)
+        
+        result = risk_engine.check_circuit_breaker(daily_pnl, account_balance)
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f'Error checking circuit breaker: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/portfolio/add_trade', methods=['POST'])
+def add_portfolio_trade():
+    """Add trade to portfolio
+    
+    Body:
+        direction: str (UP or DOWN)
+        size: float
+        entry_price: float
+        exit_price: float
+        fees: float (optional)
+    """
+    try:
+        from app.services.risk_service import portfolio_tracker
+        
+        data = request.get_json() or {}
+        
+        trade = portfolio_tracker.add_trade(
+            direction=data['direction'],
+            size=data['size'],
+            entry_price=data['entry_price'],
+            exit_price=data['exit_price'],
+            fees=data.get('fees', 0)
+        )
+        
+        return jsonify(trade)
+    
+    except Exception as e:
+        logger.error(f'Error adding trade: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/portfolio/performance', methods=['GET'])
+def get_portfolio_performance():
+    """Get portfolio performance metrics"""
+    try:
+        from app.services.risk_service import portfolio_tracker
+        
+        return jsonify(portfolio_tracker.get_performance())
+    
+    except Exception as e:
+        logger.error(f'Error getting performance: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/portfolio/equity', methods=['GET'])
+def get_portfolio_equity():
+    """Get equity curve
+    
+    Query params:
+        days: int (optional)
+    """
+    try:
+        from app.services.risk_service import portfolio_tracker
+        
+        days = request.args.get('days', type=int)
+        
+        equity = portfolio_tracker.get_equity_curve(days)
+        
+        return jsonify({'equity': equity, 'count': len(equity)})
+    
+    except Exception as e:
+        logger.error(f'Error getting equity: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/portfolio/reset', methods=['POST'])
+def reset_portfolio():
+    """Reset portfolio"""
+    try:
+        from app.services.risk_service import portfolio_tracker
+        
+        portfolio_tracker.reset()
+        
+        return jsonify({'status': 'reset'})
+    
+    except Exception as e:
+        logger.error(f'Error resetting portfolio: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/markets/available', methods=['GET'])
+def get_available_markets():
+    """Get all available markets"""
+    try:
+        from app.services.market_registry import market_registry
+        
+        return jsonify({'markets': market_registry.get_available_markets()})
+    
+    except Exception as e:
+        logger.error(f'Error getting markets: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/markets/subscribe', methods=['POST'])
+def subscribe_markets():
+    """Subscribe to markets
+    
+    Body:
+        market_ids: List[str]
+        user_id: str (optional)
+    """
+    try:
+        from app.services.market_registry import market_registry
+        
+        data = request.get_json() or {}
+        market_ids = data.get('market_ids', [])
+        user_id = data.get('user_id', 'default')
+        
+        result = market_registry.subscribe_user(user_id, market_ids)
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        logger.error(f'Error subscribing markets: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/audit/logs', methods=['GET'])
+def get_audit_logs():
+    """Get audit logs (admin only)
+    
+    Query params:
+        event_type: str (optional)
+        user_id: str (optional)
+        limit: int (default: 100)
+    """
+    try:
+        from app.services.audit_service import audit_service
+        
+        event_type = request.args.get('event_type')
+        user_id = request.args.get('user_id')
+        limit = request.args.get('limit', 100, type=int)
+        
+        logs = audit_service.get_logs(event_type, user_id, limit)
+        
+        return jsonify({'logs': logs, 'count': len(logs)})
+    
+    except Exception as e:
+        logger.error(f'Error getting audit logs: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/audit/activity', methods=['GET'])
+def get_recent_activity():
+    """Get recent activity summary
+    
+    Query params:
+        hours: int (default: 24)
+    """
+    try:
+        from app.services.audit_service import audit_service
+        
+        hours = request.args.get('hours', 24, type=int)
+        
+        return jsonify(audit_service.get_recent_activity(hours))
+    
+    except Exception as e:
+        logger.error(f'Error getting activity: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@api_bp.route('/keys', methods=['POST'])
+def create_api_key():
+    """Create scoped API key
+    
+    Body:
+        name: str - Key name/description
+        permissions: List[str] - e.g., ['read:signals', 'read:analytics']
+    
+    Note: Requires X-API-Key header or login session
+    """
+    try:
+        import secrets
+        import hashlib
+        
+        from app.routes.auth import get_current_user
+        
+        user = get_current_user()
+        
+        data = request.get_json() or {}
+        name = data.get('name', 'API Key')
+        permissions = data.get('permissions', ['read:signals'])
+        
+        key_value = secrets.token_hex(32)
+        
+        # Hash the key for storage (using SHA-256)
+        key_hash = hashlib.sha256(key_value.encode()).hexdigest()
+        
+        from app.models.db import db, Settings
+        
+        key_suffix = secrets.token_hex(8)
+        key = 'api_key_' + key_suffix
+        
+        key_record = Settings(
+            key=key,
+            value=json.dumps({
+                'hash': key_hash,
+                'name': name,
+                'permissions': permissions,
+                'created_at': datetime.now(timezone.utc).isoformat()
+            })
+        )
+        db.session.add(key_record)
+        db.session.commit()
+        
+        from app.services.audit_service import audit_service
+        audit_service.log_event(
+            event_type='api_key',
+            user_id=user.user_id if user else None,
+            action='create',
+            details={'name': name, 'permissions': permissions}
+        )
+        
+        return jsonify({
+            'api_key': key_value,
+            'name': name,
+            'permissions': permissions,
+            'created_at': datetime.now(timezone.utc).isoformat()
+        }), 201
+    
+    except Exception as e:
+        logger.error(f'Error creating API key: {e}')
         return jsonify({'error': str(e)}), 500

@@ -4,6 +4,7 @@ from datetime import datetime, timezone, timedelta
 
 from app.services.chainlink_service import binance_service, chainlink_service
 from app.services.polymarket_service import polymarket_service
+from app.services.ml_service import ml_prediction_engine, ml_feature_engine
 from app.models.db import Settings
 from app.utils.math_utils import (
     calculate_ema, calculate_rsi, calculate_macd, calculate_atr,
@@ -12,6 +13,9 @@ from app.utils.math_utils import (
 from app.utils.time_utils import get_market_window_times, get_hour_of_day
 
 logger = logging.getLogger(__name__)
+
+ML_BLEND_WEIGHT = 0.6
+TECHNICAL_BLEND_WEIGHT = 0.4
 
 
 class SignalDirection:
@@ -153,17 +157,29 @@ class StrategyService:
         if direction == SignalDirection.NO_TRADE:
             confidence = 0
         
-        tier = self._get_confidence_tier(confidence)
+        ml_prediction = self._get_ml_prediction(btc_data, market_data, regime, time_remaining)
+        
+        final_direction, final_confidence, ml_blend = self._blend_signals(
+            direction, confidence, ml_prediction, technical_confidence=confidence
+        )
+        
+        if final_direction == SignalDirection.NO_TRADE:
+            final_confidence = 0
+        
+        tier = self._get_confidence_tier(final_confidence)
         
         if not reasoning:
             reason = 'Insufficient edge for confident signal'
-            if direction == SignalDirection.NO_TRADE:
+            if final_direction == SignalDirection.NO_TRADE:
                 reason = f'NO TRADE: {reason}'
             reasoning.append(reason)
         
+        if ml_blend:
+            reasoning.append(f"ML: {ml_prediction.get('direction')} ({ml_prediction.get('confidence')}%)")
+        
         return {
-            'direction': direction,
-            'confidence': confidence,
+            'direction': final_direction,
+            'confidence': final_confidence,
             'tier': tier,
             'reasoning': reasoning,
             'timestamp': datetime.now(timezone.utc).isoformat(),
@@ -172,6 +188,7 @@ class StrategyService:
             'live_price': price,
             'regime': regime,
             'time_remaining': time_remaining,
+            'ml_prediction': ml_prediction,
             'up_probability': up_prob,
             'factors': factors
         }
@@ -505,8 +522,67 @@ class StrategyService:
             'regime': 'unknown',
             'time_remaining': time_remaining,
             'up_probability': 0.5,
-            'factors': {}
+            'factors': {},
+            'ml_prediction': None
         }
+    
+    def _get_ml_prediction(self, btc_data: Dict, market_data: Dict, regime: str, time_remaining: int) -> Dict:
+        """Get ML prediction for current market
+        
+        GRACEFUL FALLBACK: If ML model not trained, return neutral to use rule-based only
+        """
+        try:
+            if not ml_prediction_engine._is_trained:
+                logger.info('ML model not trained, using rule-based only')
+                return {'probability': 0.5, 'direction': 'UNKNOWN', 'confidence': 0, 'fallback': True}
+            
+            features = {
+                'price': btc_data.get('price', 0),
+                'price_change_1m': btc_data.get('change_1m', 0),
+                'price_change_5m': btc_data.get('change_5m', 0),
+                'price_change_15m': btc_data.get('change_15m', 0),
+                'rsi_14': btc_data.get('rsi', 50),
+                'volatility_5m': btc_data.get('atr', 0),
+                'volatility_15m': btc_data.get('atr', 0),
+                'ma_ratio_5_20': 1.0,
+                'ma_ratio_20_50': 1.0,
+                'market_probability_up': market_data.get('up_probability', 0.5),
+                'signal_confidence': 50,
+                'regime': regime,
+                'time_remaining': time_remaining,
+                'momentum_5': btc_data.get('momentum', 0),
+                'momentum_15': btc_data.get('momentum', 0),
+                'trend_strength': 50,
+            }
+            
+            prediction = ml_prediction_engine.predict(features)
+            prediction['fallback'] = False
+            
+            ml_feature_engine.add_price(btc_data.get('price', 0))
+            
+            return prediction
+        except Exception as e:
+            logger.warning(f'ML prediction failed: {e}')
+            return {'probability': 0.5, 'direction': 'UNKNOWN', 'confidence': 0}
+    
+    def _blend_signals(self, tech_direction: str, tech_confidence: int, ml_prediction: Dict, technical_confidence: int = None) -> tuple:
+        """Blend technical and ML signals"""
+        if not ml_prediction or ml_prediction.get('direction') == 'UNKNOWN':
+            return tech_direction, tech_confidence, False
+        
+        ml_direction = ml_prediction.get('direction')
+        ml_confidence = ml_prediction.get('confidence', 0)
+        ml_probability = ml_prediction.get('probability', 0.5)
+        
+        technical_confidence = technical_confidence or tech_confidence
+        
+        if ml_direction == tech_direction and ml_confidence >= 60:
+            blend_score = ML_BLEND_WEIGHT * ml_confidence + TECHNICAL_BLEND_WEIGHT * technical_confidence
+            return ml_direction, int(blend_score), True
+        elif ml_direction != tech_direction and ml_confidence >= 75:
+            return ml_direction, ml_confidence, True
+        else:
+            return tech_direction, tech_confidence, False
     
     def _get_confidence_tier(self, confidence: int) -> str:
         if confidence >= 90:

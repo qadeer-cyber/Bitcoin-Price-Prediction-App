@@ -1,6 +1,17 @@
 import os
 import sys
 import logging
+import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
+
+# Initialize memory guardrail
+def check_memory():
+    """Check available memory before heavy operations"""
+    try:
+        import psutil
+        return psutil.virtual_memory().percent < 85
+    except:
+        return True
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -14,6 +25,26 @@ from app.routes import dashboard, api
 from app.routes.auth import auth_bp
 from app.routes.websocket import ws_bp
 
+# Initialize Sentry (optional)
+sentry_dsn = os.environ.get('SENTRY_DSN')
+if sentry_dsn:
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        integrations=[FlaskIntegration()],
+        traces_sample_rate=0.1,
+        environment=os.environ.get('FLASK_ENV', 'production')
+    )
+    logger.info('Sentry initialized')
+
+# APScheduler for lightweight background tasks (replaces Celery)
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    SCHEDULER = BackgroundScheduler()
+    SCHEDULER_AVAILABLE = True
+except ImportError:
+    SCHEDULER = None
+    SCHEDULER_AVAILABLE = False
+
 login_manager = LoginManager()
 login_manager.login_view = 'dashboard.login'
 
@@ -25,6 +56,13 @@ def create_app():
     
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'poly-signal-btc-2026-secret')
     app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///polysignal.db')
+    pool_size = int(os.environ.get('SQLALCHEMY_POOL_SIZE', '10'))
+    max_overflow = int(os.environ.get('SQLALCHEMY_MAX_OVERFLOW', '20'))
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_size': pool_size,
+        'max_overflow': max_overflow
+    }
+    
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
     db.init_app(app)
@@ -38,6 +76,16 @@ def create_app():
         db.create_all()
         
         _init_default_settings()
+        _init_telegram_bot()
+        _init_scheduler()
+    
+    # Memory guard: Skip heavy background tasks on low RAM
+    if check_memory() and SCHEDULER_AVAILABLE:
+        try:
+            SCHEDULER.start()
+            logger.info('APScheduler started')
+        except Exception as e:
+            logger.warning(f'Scheduler start failed: {e}')
     
     app.register_blueprint(dashboard.dashboard_bp)
     app.register_blueprint(api.api_bp, url_prefix='/api')
@@ -78,6 +126,36 @@ def _init_default_settings():
             db.session.add(setting)
     
     db.session.commit()
+
+
+def _init_telegram_bot():
+    """Initialize Telegram bot if configured"""
+    try:
+        from app.services.bot_service import bot_runner
+        bot_runner.start()
+    except Exception as e:
+        logger.warning(f'Telegram bot init failed: {e}')
+
+
+def _init_scheduler():
+    """Initialize lightweight scheduler (replaces Celery)"""
+    if not SCHEDULER_AVAILABLE or not check_memory():
+        logger.info('APScheduler skipped (low RAM or not available)')
+        return
+    
+    try:
+# Check pending markets every 5 minutes (only if not already running)
+        if not SCHEDULER.running:
+            SCHEDULER.add_job(
+            check_pending,
+            'interval',
+            minutes=5,
+            id='check_pending'
+        )
+        
+        logger.info('APScheduler jobs registered')
+    except Exception as e:
+        logger.warning(f'Scheduler setup failed: {e}')
 
 
 app = create_app()

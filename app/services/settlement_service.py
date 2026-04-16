@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -7,10 +8,37 @@ from app.services.polymarket_service import polymarket_service
 
 logger = logging.getLogger(__name__)
 
+# Check if Celery is available
+CELERY_AVAILABLE = False
+try:
+    from celery import Celery
+    CELERY_AVAILABLE = True
+except ImportError:
+    logger.info('Celery not available - using synchronous execution')
+
+
+def get_celery_app():
+    """Get Celery app with graceful degradation"""
+    if not CELERY_AVAILABLE:
+        return None
+    
+    try:
+        celery_app = Celery('polysignal')
+        redis_url = os.environ.get('REDIS_URL')
+        if redis_url:
+            celery_app.conf.broker_url = redis_url
+            celery_app.conf.result_backend = redis_url
+            return celery_app
+    except Exception as e:
+        logger.warning(f'Celery initialization failed: {e}')
+    
+    return None
+
 
 class SettlementService:
     def __init__(self):
         self.last_check = None
+        self._celery_app = get_celery_app() if CELERY_AVAILABLE else None
     
     def check_pending_markets(self) -> int:
         pending_signals = SignalLog.query.filter(
@@ -97,6 +125,19 @@ class SettlementService:
         return SignalLog.query.filter(
             SignalLog.resolved_outcome.is_(None)
         ).count()
+    
+    def run_async(self, task_name: str, *args, **kwargs):
+        """Run task with Celery or fallback to synchronous"""
+        if self._celery_app:
+            try:
+                task = self._celery_app.send_task(task_name, args=args, kwargs=kwargs)
+                return task.id
+            except Exception as e:
+                logger.warning(f'Celery task failed, running synchronously: {e}')
+        
+        # Fallback to synchronous execution
+        logger.info(f'Running {task_name} synchronously')
+        return None
 
 
 settlement_service = SettlementService() 
