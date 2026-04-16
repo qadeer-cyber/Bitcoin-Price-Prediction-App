@@ -8,6 +8,7 @@ from typing import Optional, Dict, List, Callable
 from threading import Thread
 from queue import Queue, Empty
 import os
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,207 @@ class PolymarketService:
             self._get_binance_ws_price,
             self._get_coingecko_price,
         ]
+        
+        self._fallback_market = None
+        self._fallback_btc_price = None
+        self._api_unreachable = False
+    
+    def _get_binance_live_price(self) -> Optional[float]:
+        """Get live BTC price from Binance REST API"""
+        try:
+            url = 'https://api.binance.com/api/v3/ticker/price'
+            response = self.session.get(url, params={'symbol': 'BTCUSDT'}, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            return float(data.get('price', 0))
+        except Exception as e:
+            logger.warning(f'Binance API error: {e}')
+            return None
+    
+    def _extract_price_to_beat(self, market: Dict) -> Optional[float]:
+        """Extract Price to Beat from market description/rules"""
+        try:
+            description = market.get('description', '') or market.get('rules', '') or ''
+            price_pattern = r'\$([0-9,]+(?:\.[0-9]+)?)'
+            match = re.search(price_pattern, description)
+            if match:
+                return float(match.group(1).replace(',', ''))
+            
+            outcome_prices = market.get('outcomePrices', [])
+            if isinstance(outcome_prices, str):
+                try:
+                    outcome_prices = json.loads(outcome_prices)
+                except:
+                    outcome_prices = []
+            
+            if outcome_prices and len(outcome_prices) > 0:
+                return float(outcome_prices[0]) * 100
+        except Exception as e:
+            logger.warning(f'Price to beat extraction error: {e}')
+        return None
+    
+    def _get_market_probabilities(self, market: Dict) -> tuple:
+        """Get UP/DOWN probabilities from market or CLOB"""
+        try:
+            outcome_prices = market.get('outcomePrices', [])
+            if isinstance(outcome_prices, str):
+                try:
+                    outcome_prices = json.loads(outcome_prices)
+                except:
+                    outcome_prices = []
+            
+            if outcome_prices and len(outcome_prices) >= 2:
+                up_prob = float(outcome_prices[0])
+                down_prob = float(outcome_prices[1])
+                return up_prob, down_prob
+            
+            token_ids = market.get('clobTokenIds', [])
+            if token_ids:
+                prices = self.get_market_prices(token_ids)
+                if prices:
+                    up_price = prices.get(token_ids[0], 0.5)
+                    return up_price, 1 - up_price
+        except Exception as e:
+            logger.warning(f'Probability extraction error: {e}')
+        
+        return 0.5, 0.5
+    
+    def _calculate_seconds_remaining(self, market: Dict) -> int:
+        """Calculate seconds remaining until market end"""
+        try:
+            end_date_str = market.get('endDate') or market.get('end_date_iso')
+            if end_date_str:
+                if 'Z' in end_date_str:
+                    end_date_str = end_date_str.replace('Z', '+00:00')
+                end_dt = datetime.fromisoformat(end_date_str.replace('+00:00', ''))
+            else:
+                end_dt = datetime.now(timezone.utc) + timedelta(minutes=5)
+            
+            now = datetime.now(timezone.utc)
+            remaining = int((end_dt - now).total_seconds())
+            return max(0, remaining)
+        except Exception as e:
+            logger.warning(f'Seconds remaining error: {e}')
+            return 300
+    
+    def _generate_fallback_market(self) -> Dict:
+        """Generate safe simulated market when API is unreachable"""
+        if self._fallback_market:
+            return self._fallback_market
+        
+        import time
+        now = datetime.now(timezone.utc)
+        
+        minutes = now.minute
+        window_start = now.replace(second=0, microsecond=0)
+        window_end = window_start + timedelta(minutes=5)
+        
+        if minutes % 5 >= 0:
+            window_start = now.replace(second=0, microsecond=0)
+            window_end = window_start + timedelta(minutes=5)
+        
+        btc_price = self._fallback_btc_price or 42000.0
+        
+        self._fallback_market = {
+            'id': 'fallback-btc-5min-' + str(int(time.time())),
+            'conditionId': 'fallback-condition',
+            'question': f'Will BTC be above or below ${btc_price:,.0f} at {window_end.strftime("%H:%M")} ET?',
+            'description': f'Will BTC be above or below ${btc_price:,.0f} in the next 5 minutes?',
+            'volume': 10000,
+            'outcomePrices': ['0.50', '0.50'],
+            'endDate': window_end.isoformat(),
+            'startDate': window_start.isoformat(),
+            'closed': False,
+            'active': True
+        }
+        return self._fallback_market
+    
+    def get_live_current_market(self) -> Dict:
+        """Get live current market with all data - primary method for API"""
+        market = self._get_current_btc_5min_market_live()
+        
+        if not market:
+            self._api_unreachable = True
+            market = self._generate_fallback_market()
+        
+        btc_price = self._get_binance_live_price()
+        if not btc_price:
+            btc_price = self._get_binance_ws_price()
+        if not btc_price:
+            btc_price = self._fallback_btc_price or 42000.0
+            self._fallback_btc_price = btc_price
+        else:
+            self._fallback_btc_price = btc_price
+        
+        price_to_beat = self._extract_price_to_beat(market)
+        if not price_to_beat:
+            price_to_beat = btc_price
+        
+        up_prob, down_prob = self._get_market_probabilities(market)
+        
+        seconds_remaining = self._calculate_seconds_remaining(market)
+        
+        return {
+            'market_id': market.get('id') or market.get('conditionId') or 'unknown',
+            'condition_id': market.get('conditionId') or 'unknown',
+            'event_title': market.get('question', '') or market.get('description', ''),
+            'price_to_beat': price_to_beat,
+            'live_price': btc_price,
+            'up_probability': up_prob,
+            'down_probability': down_prob,
+            'seconds_remaining': seconds_remaining,
+            'window_start': market.get('startDate'),
+            'window_end': market.get('endDate'),
+            'volume': market.get('volume', 0),
+            'status': 'live' if seconds_remaining > 0 else 'resolved',
+            'data_source': 'api' if not self._api_unreachable else 'fallback'
+        }
+    
+    def _get_current_btc_5min_market_live(self) -> Optional[Dict]:
+        """Get current live BTC 5-minute market from API"""
+        try:
+            url = f'{self.GAMMA_API}/markets'
+            params = {
+                'limit': 50,
+                'closed': 'false',
+                'active': 'true'
+            }
+            response = self.session.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            markets = response.json()
+            
+            now = datetime.now(timezone.utc)
+            btc_markets = []
+            
+            for market in markets:
+                question = market.get('question', '') or market.get('description', '')
+                question_lower = question.lower()
+                
+                if 'btc' in question_lower or 'bitcoin' in question_lower:
+                    if ('up or down' in question_lower or 'above or below' in question_lower or '5 minute' in question_lower or '5-min' in question_lower):
+                        end_date_str = market.get('endDate')
+                        if end_date_str:
+                            try:
+                                if 'Z' in end_date_str:
+                                    end_date_str = end_date_str.replace('Z', '+00:00')
+                                end_dt = datetime.fromisoformat(end_date_str.replace('+00:00', ''))
+                                if end_dt > now:
+                                    btc_markets.append(market)
+                            except:
+                                btc_markets.append(market)
+                        else:
+                            btc_markets.append(market)
+            
+            if btc_markets:
+                return btc_markets[0]
+            
+            self._api_unreachable = True
+            return None
+            
+        except Exception as e:
+            logger.warning(f'Error fetching live market: {e}')
+            self._api_unreachable = True
+            return None
     
     def _get_polymarket_resolution_price(self) -> Optional[float]:
         """Get price from Polymarket Gamma API - Primary source"""

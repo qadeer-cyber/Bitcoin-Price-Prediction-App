@@ -22,54 +22,60 @@ api_bp = Blueprint('api', __name__)
 @api_bp.route('/market/current', methods=['GET'])
 def get_current_market():
     try:
-        market = polymarket_service.get_current_btc_5min_market()
+        market_data = polymarket_service.get_live_current_market()
         
-        if not market:
+        if not market_data:
             return jsonify({'error': 'No active market found'}), 404
         
-        btc_price = binance_service.get_btc_usdt_price()
+        market_id = market_data.get('market_id', 'unknown')
+        window_start = market_data.get('window_start')
+        window_end = market_data.get('window_end')
         
-        window_times = get_market_window_times()
-        
-        market_id = market.get('conditionId') or market.get('id', 'unknown')
-        
-        outcome_prices = market.get('outcomePrices', [])
-        if isinstance(outcome_prices, str):
-            import json
-            try:
-                outcome_prices = json.loads(outcome_prices)
-            except:
-                outcome_prices = [0.5, 0.5]
-        
-        up_prob = outcome_prices[0] if len(outcome_prices) > 0 else 0.5
-        down_prob = 1 - up_prob
-        
-        snapshot = MarketSnapshot(
-            market_id=market_id,
-            event_title=market.get('question', ''),
-            window_start=window_times['window_start'],
-            window_end=window_times['window_end'],
-            price_to_beat=btc_price,
-            live_price=btc_price,
-            up_probability=up_prob,
-            down_probability=down_prob,
-            status='live',
-            volume_usd=market.get('volume')
-        )
-        db.session.add(snapshot)
-        db.session.commit()
+        try:
+            from datetime import datetime
+            ws = None
+            we = None
+            
+            if window_start and isinstance(window_start, str):
+                ws_str = window_start.replace('Z', '+00:00').replace('+00:00', '')
+                ws = datetime.fromisoformat(ws_str)
+                
+            if window_end and isinstance(window_end, str):
+                we_str = window_end.replace('Z', '+00:00').replace('+00:00', '')
+                we = datetime.fromisoformat(we_str)
+            
+            if ws and we:
+                snapshot = MarketSnapshot(
+                    market_id=market_id,
+                    event_title=market_data.get('event_title', ''),
+                    window_start=ws,
+                    window_end=we,
+                    price_to_beat=market_data.get('price_to_beat', 0),
+                    live_price=market_data.get('live_price', 0),
+                    up_probability=market_data.get('up_probability', 0.5),
+                    down_probability=market_data.get('down_probability', 0.5),
+                    status=market_data.get('status', 'live'),
+                    volume_usd=market_data.get('volume', 0)
+                )
+                db.session.add(snapshot)
+                db.session.commit()
+        except Exception as e:
+            logger.warning(f'Snapshot save warning: {e}')
         
         return jsonify({
             'market_id': market_id,
-            'event_title': market.get('question', ''),
-            'window_start': window_times['window_start'].isoformat(),
-            'window_end': window_times['window_end'].isoformat(),
-            'price_to_beat': btc_price,
-            'live_price': btc_price,
-            'up_probability': up_prob,
-            'down_probability': down_prob,
-            'time_remaining': window_times['remaining_seconds'],
-            'status': 'live'
+            'condition_id': market_data.get('condition_id'),
+            'event_title': market_data.get('event_title', ''),
+            'window_start': window_start,
+            'window_end': window_end,
+            'price_to_beat': market_data.get('price_to_beat'),
+            'live_price': market_data.get('live_price'),
+            'up_probability': market_data.get('up_probability'),
+            'down_probability': market_data.get('down_probability'),
+            'seconds_remaining': market_data.get('seconds_remaining', 300),
+            'volume': market_data.get('volume', 0),
+            'status': market_data.get('status', 'live'),
+            'data_source': market_data.get('data_source', 'api')
         })
     
     except Exception as e:

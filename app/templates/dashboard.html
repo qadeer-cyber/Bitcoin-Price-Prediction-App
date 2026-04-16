@@ -298,39 +298,150 @@
 
 {% block extra_js %}
 <script>
-let timeRemaining = {{ market.time_remaining if market.time_remaining else 0 }};
+var timeRemaining = {{ market.seconds_remaining if market.seconds_remaining else market.time_remaining if market.time_remaining else 300 }};
+var currentSignal = '{{ signal.direction if signal.direction else "NO_TRADE" }}';
+var currentConfidence = {{ signal.confidence if signal.confidence else 0 }};
+
+function formatTime(seconds) {
+    var mins = Math.floor(seconds / 60);
+    var secs = seconds % 60;
+    var minsStr = mins < 10 ? '0' + mins : '' + mins;
+    var secsStr = secs < 10 ? '0' + secs : '' + secs;
+    return minsStr + ':' + secsStr;
+}
 
 function updateCountdown() {
+    var countdownEl = document.getElementById('countdown');
+    var statusEl = document.getElementById('window-status');
+    
+    if (!countdownEl || !statusEl) return;
+    
     if (timeRemaining <= 0) {
-        document.getElementById('countdown').textContent = 'ENDED';
-        document.getElementById('window-status').textContent = 'Ended';
-        document.getElementById('window-status').className = 'badge bg-danger';
+        countdownEl.textContent = 'ENDED';
+        statusEl.textContent = 'Ended';
+        statusEl.className = 'badge bg-danger';
         return;
     }
     
-    const minutes = Math.floor(timeRemaining / 60);
-    const seconds = timeRemaining % 60;
-    document.getElementById('countdown').textContent = 
-        String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+    countdownEl.textContent = formatTime(timeRemaining);
     
     if (timeRemaining <= 60) {
-        document.getElementById('window-status').textContent = 'Final Minute';
-        document.getElementById('window-status').className = 'badge bg-warning text-dark';
+        statusEl.textContent = 'Final Minute';
+        statusEl.className = 'badge bg-warning text-dark';
+    } else if (timeRemaining <= 120) {
+        statusEl.textContent = 'Last 2 Min';
+        statusEl.className = 'badge bg-info';
+    } else {
+        statusEl.textContent = 'Live';
+        statusEl.className = 'badge bg-success';
     }
     
     timeRemaining--;
 }
 
+function updateMarketData() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/market/current', true);
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+            try {
+                var data = JSON.parse(xhr.responseText);
+                
+                if (data.seconds_remaining !== undefined) {
+                    timeRemaining = data.seconds_remaining;
+                }
+                
+                var btcPriceEl = document.querySelector('.stat-value[style*="var(--accent-gold)"]');
+                if (btcPriceEl && data.live_price) {
+                    btcPriceEl.textContent = '$' + data.live_price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                }
+                
+                var upProbEl = document.querySelector('.stat-value.signal-up');
+                var downProbEl = document.querySelector('.stat-value.signal-down');
+                var progressBars = document.querySelectorAll('.progress-bar');
+                
+                if (data.up_probability !== undefined && progressBars.length >= 2) {
+                    var upPct = data.up_probability * 100;
+                    var downPct = data.down_probability * 100;
+                    
+                    progressBars[0].style.width = upPct + '%';
+                    progressBars[1].style.width = downPct + '%';
+                    
+                    if (upProbEl && upProbEl.nextSibling) {
+                        upProbEl.nextSibling.textContent = upPct.toFixed(1) + '%';
+                    }
+                    if (downProbEl && downProbEl.nextSibling) {
+                        downProbEl.nextSibling.textContent = downPct.toFixed(1) + '%';
+                    }
+                }
+                
+                if (data.data_source === 'fallback') {
+                    console.log('Using fallback data - API unreachable');
+                }
+            } catch(e) {
+                console.error('Market data parse error:', e);
+            }
+        }
+    };
+    xhr.onerror = function() {
+        console.error('Market API error');
+    };
+    xhr.send();
+}
+
+function updateSignal() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/signal/current', true);
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+            try {
+                var data = JSON.parse(xhr.responseText);
+                
+                var direction = data.direction || 'NO_TRADE';
+                var confidence = data.confidence || 0;
+                
+                var signalEl = document.querySelector('h2.signal-up, h2.signal-down, h2.signal-none');
+                if (signalEl) {
+                    signalEl.textContent = direction;
+                    signalEl.className = 'mb-4';
+                    if (direction === 'UP') {
+                        signalEl.className += ' signal-up';
+                    } else if (direction === 'DOWN') {
+                        signalEl.className += ' signal-down';
+                    } else {
+                        signalEl.className += ' signal-none';
+                    }
+                }
+                
+                var confValEl = document.querySelector('.confidence-value');
+                if (confValEl) {
+                    confValEl.textContent = confidence;
+                }
+                
+                var tierBadge = document.querySelector('.tier-badge');
+                if (tierBadge && data.tier) {
+                    tierBadge.textContent = data.tier.toUpperCase();
+                    tierBadge.className = 'tier-badge tier-' + data.tier.toLowerCase() + ' mt-2';
+                }
+                
+            } catch(e) {
+                console.error('Signal parse error:', e);
+            }
+        }
+    };
+    xhr.onerror = function() {
+        console.error('Signal API error');
+    };
+    xhr.send();
+}
+
 setInterval(updateCountdown, 1000);
 updateCountdown();
 
-setInterval(function() {
-    fetch('/api/signal/current')
-        .then(response => response.json())
-        .then(data => {
-            console.log('Signal updated:', data);
-        })
-        .catch(error => console.error('Error updating signal:', error));
-}, 5000);
+setInterval(updateMarketData, 3000);
+setInterval(updateSignal, 3000);
+
+setTimeout(updateMarketData, 500);
+setTimeout(updateSignal, 1000);
 </script>
 {% endblock %}
